@@ -1,181 +1,58 @@
-# Arduino Line-Following Robot — Hardware Connection Guide
+# Squad Workload Monitoring Pipeline (GPS + sRPE)
 
-A complete wiring and connection reference for the real-life build of the Arduino-based line-following robot with obstacle detection.
+A small Python ETL pipeline that turns session-level GPS and sRPE data into
+load-monitoring metrics and a 2-page PDF briefing for staff.
 
----
+> **Data note:** the demo runs on **simulated data** because no club data is
+> available. Load spikes are deliberately planted for three players
+> (Player_07, 14, 19) to demonstrate the flagging logic. Nothing in the demo
+> report is a real finding. The same code runs on a real CSV export
+> (see "Using real data").
 
-## Components
+## What it does
+1. **Extract**: generates simulated 6-week squad data (22 players, weekly
+   microcycle with match, recovery and rest days, 3% sensor dropouts) or reads a CSV.
+2. **Transform**
+   - imputes missing distances with the player's median for that session type
+   - sRPE internal load = session RPE x duration (AU)
+   - full daily grid so rest days count as zero load
+   - rolling 7-day acute load, 28-day chronic load and ACWR (coupled)
+   - 7-day sums: distance, high-speed running (>21 km/h), sprints, accelerations/decelerations
+   - HSR z-score versus the player's own 28-day baseline
+3. **Report**: writes `squad_load_processed.csv` and `Squad_Load_Report.pdf`
+   (squad overview + individual player profile compared with the position group).
 
-| Component | Quantity |
-|---|---|
-| Arduino Uno | 1 |
-| L298N Motor Controller Module | 1 |
-| DC Motor | 2 |
-| IR Line Sensor | 2 |
-| Ultrasonic Sensor (HC-SR04) | 2 |
-| Breadboard | 1 |
-| 9V Battery | 1 |
-
-> **Note:** The real-life circuit does **not** use switches. The two switches from the Tinkercad simulation are replaced by two IR sensors in the actual build.
-
----
-
-## Mounting Guidelines
-
-- Arduino and motor controller are **screwed onto the chassis**.
-- IR sensors and ultrasonic sensors use **dedicated holders**.
-- Glue, tape, and zip ties are **not allowed**.
-
----
-
-## A. Arduino to Breadboard Power
-
-| From Arduino | To Breadboard |
-|---|---|
-| 5V | Positive `+` rail |
-| GND | Negative `–` rail |
-
-IR sensors and ultrasonic sensors draw power from these breadboard rails.
-
----
-
-## B. L298N Power Connection
-
-> For the first test, power the Arduino via USB — it is the safest option.
-
-| Connection | Connect To |
-|---|---|
-| 9V Battery `+` | L298N `12V / VIN` terminal |
-| 9V Battery `–` | L298N `GND` terminal |
-| L298N `GND` | Arduino GND / Breadboard `–` rail |
-
-**Power flow summary:**
-- `9V Battery → L298N → Motors`
-- `Arduino USB / 5V → Sensors and Arduino logic`
-- `Arduino GND + L298N GND + Sensor GND → Common ground`
-
-### ⚠️ Important Warnings
-
-- Never connect the 9V battery `+` to the Arduino `5V` pin.
-- Do not connect the L298N `5V` output pin and Arduino `5V` pin together at this stage.
-- A rectangular 9V battery may cause the motors to spin weakly — this is a battery limitation, not a wiring error.
-
----
-
-## C. L298N Jumper Settings
-
-The L298N module ships with jumper caps on the ENA and ENB pins.
-
-| Jumper | Action |
-|---|---|
-| ENA jumper | **Remove** |
-| ENB jumper | **Remove** |
-
-Motor speed is controlled via Arduino pins D5 (left) and D6 (right):
-- **Normal movement** → fast speed
-- **Turning** → slow speed
-- **Obstacle detected** → motors off
-
----
-
-## D. L298N to Arduino Control Connections
-
-| L298N Pin | Purpose | Arduino Pin |
-|---|---|---|
-| ENA | Left motor speed (PWM) | D5 |
-| IN1 | Left motor direction 1 | D2 |
-| IN2 | Left motor direction 2 | D3 |
-| IN3 | Right motor direction 1 | D4 |
-| IN4 | Right motor direction 2 | D13 |
-| ENB | Right motor speed (PWM) | D6 |
-| GND | Common ground | Arduino GND |
-
----
-
-## E. Motor Connections
-
-| Motor | L298N Terminal |
-|---|---|
-| Left Motor (terminals 1 & 2) | OUT1 and OUT2 |
-| Right Motor (terminals 1 & 2) | OUT3 and OUT4 |
-
-> If a motor spins in the wrong direction during a forward command, **swap the two wires** on that motor's output terminal.
-
----
-
-## F. IR Sensor Connections
-
-### Left IR Sensor
-
-| IR Sensor Pin | Connect To |
-|---|---|
-| VCC | Breadboard `+` rail / Arduino 5V |
-| GND | Breadboard `–` rail / Arduino GND |
-| OUT / DO | Arduino **D7** |
-
-### Right IR Sensor
-
-| IR Sensor Pin | Connect To |
-|---|---|
-| VCC | Breadboard `+` rail / Arduino 5V |
-| GND | Breadboard `–` rail / Arduino GND |
-| OUT / DO | Arduino **D8** |
-
-> The Arduino pin assignments (D7 / D8) match the Tinkercad simulation, so **no code changes** are needed for the IR pins.
-
-### Sensor Behavior Note
-
-Some IR sensors output `LOW` when a black line is detected; others output `HIGH`. If the sensor behaves unexpectedly, change this line in the code:
-
-```cpp
-const int LINE_DETECTED = LOW;
+## Run it
+```bash
+pip install -r requirements.txt
+python load_pipeline.py                      # simulated demo
+python load_pipeline.py --player Player_07   # choose the profile player
 ```
 
-to:
-
-```cpp
-const int LINE_DETECTED = HIGH;
+## Using real data
+```bash
+python load_pipeline.py --input my_export.csv
 ```
+Required columns (one row per player per session):
 
----
-
-## G. Ultrasonic Sensor Connections
-
-### Left Ultrasonic Sensor (HC-SR04)
-
-| Sensor Pin | Connect To |
+| column | meaning |
 |---|---|
-| VCC | Breadboard `+` rail / Arduino 5V |
-| GND | Breadboard `–` rail / Arduino GND |
-| TRIG | Arduino **D9** |
-| ECHO | Arduino **D10** |
+| date | session date (YYYY-MM-DD) |
+| player_id, position | identifiers |
+| session_type | Match / Training / Recovery |
+| duration_min | session duration |
+| total_distance_m, hsr_distance_m | GPS distance and high-speed running distance |
+| sprint_count, acc_dec_count | counts |
+| session_rpe | 1-10 rating of perceived exertion |
 
-### Right Ultrasonic Sensor (HC-SR04)
+## Limitations
+- ACWR is a load-monitoring indicator, not a validated injury predictor; the
+  1.35 / 0.80 thresholds are common conventions, not guarantees.
+- Coupled ACWR (acute window included in chronic window) is used for simplicity.
+- Needs at least 28 days of data before ACWR is available.
+- Simulated data cannot show real-world relationships between load and outcomes.
 
-| Sensor Pin | Connect To |
-|---|---|
-| VCC | Breadboard `+` rail / Arduino 5V |
-| GND | Breadboard `–` rail / Arduino GND |
-| TRIG | Arduino **D11** |
-| ECHO | Arduino **D12** |
-
----
-
-## H. Complete Arduino Pin Reference
-
-| Arduino Pin | Connected Component |
-|---|---|
-| 5V | Breadboard positive rail (sensors) |
-| GND | Breadboard negative rail + L298N GND |
-| D2 | L298N IN1 |
-| D3 | L298N IN2 |
-| D4 | L298N IN3 |
-| D5 | L298N ENA — Left motor speed |
-| D6 | L298N ENB — Right motor speed |
-| D7 | Left IR Sensor OUT |
-| D8 | Right IR Sensor OUT |
-| D9 | Left Ultrasonic TRIG |
-| D10 | Left Ultrasonic ECHO |
-| D11 | Right Ultrasonic TRIG |
-| D12 | Right Ultrasonic ECHO |
-| D13 | L298N IN4 |
+## Possible next steps
+- Add real open tracking data (e.g. Metrica Sports sample data) to compute speed zones from raw positions
+- Interactive Streamlit dashboard
+- Unit tests for the transform step
